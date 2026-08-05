@@ -2,16 +2,11 @@
 
 import { Sidebar } from './sidebar';
 import { useEffect } from 'react';
-import { cleanupLocalStorage } from '@/lib/storage';
 import { usePathname, useRouter } from 'next/navigation';
 
 export function AppLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-
-  useEffect(() => {
-    cleanupLocalStorage();
-  }, []);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
