@@ -25,6 +25,11 @@ import { getCargoNameForEmpleado, getActiveTipoBono } from '@/lib/storage';
 import { EMPRESA } from '@/lib/empresa';
 import jsPDF from 'jspdf';
 
+function parseLocalDate(dateString: string): Date {
+  const [year, month, day] = dateString.split('-').map(Number);
+  return new Date(year, month - 1, day);
+}
+
 function MemorandumsContent() {
   const searchParams = useSearchParams();
   const [memorandums, setMemorandums] = useState<(Memorandum & { empleadoNombre: string })[]>([]);
@@ -47,7 +52,7 @@ function MemorandumsContent() {
         ...m,
         empleadoNombre: emp?.nombreCompleto || 'Desconocido'
       };
-    }).sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime());
+    }).sort((a, b) => parseLocalDate(b.fecha).getTime() - parseLocalDate(a.fecha).getTime());
     
     setMemorandums(memos);
     setLoading(false);
@@ -142,7 +147,7 @@ function MemorandumsContent() {
     doc.setFont('helvetica', 'normal');
     
     // Date
-    const fecha = new Date(memo.fecha).toLocaleDateString('es-PE', {
+    const fecha = parseLocalDate(memo.fecha).toLocaleDateString('es-PE', {
       year: 'numeric',
       month: 'long',
       day: 'numeric'
@@ -285,7 +290,7 @@ function MemorandumsContent() {
                   filteredMemorandums.map((memo) => (
                     <tr key={memo.id} className="border-b border-border last:border-0 hover:bg-muted/30">
                       <td className="p-4 text-sm text-foreground whitespace-nowrap">
-                        {new Date(memo.fecha).toLocaleDateString('es-PE')}
+                        {parseLocalDate(memo.fecha).toLocaleDateString('es-PE')}
                       </td>
                       <td className="p-4 text-sm text-foreground">{memo.empleadoNombre}</td>
                       <td className="p-4 text-sm text-foreground max-w-[200px] truncate" title={memo.asunto}>
@@ -405,7 +410,7 @@ function MemorandumModal({
       fecha: new Date().toISOString().split('T')[0],
       asunto: incidencia ? `Falta ${incidencia.tipoFalta} - ${incidencia.categoria}` : '',
       descripcion: incidencia 
-        ? `Por medio del presente, se le comunica que el día ${new Date(incidencia.fecha).toLocaleDateString('es-PE')}, usted incurrió en una falta ${incidencia.tipoFalta} consistente en: ${incidencia.categoria}. ${incidencia.descripcion}`
+        ? `Por medio del presente, se le comunica que el día ${parseLocalDate(incidencia.fecha).toLocaleDateString('es-PE')}, usted incurrió en una falta ${incidencia.tipoFalta} consistente en: ${incidencia.categoria}. ${incidencia.descripcion}`
         : '',
       baseNormativa: [],
       montoBonoAfectado: 0,
@@ -628,7 +633,7 @@ function PreviewModal({
           </div>
           
           <p className="mb-6">
-            {EMPRESA.ciudad}, {new Date(memorandum.fecha).toLocaleDateString('es-PE', {
+            {EMPRESA.ciudad}, {parseLocalDate(memorandum.fecha).toLocaleDateString('es-PE', {
               year: 'numeric',
               month: 'long',
               day: 'numeric'
