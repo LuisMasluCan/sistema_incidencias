@@ -9,7 +9,7 @@ import {
   Info
 } from 'lucide-react';
 import { getReglas, saveReglas, getTipoBonos, saveTipoBonos, getActiveTipoBono, getCargos, saveCargos, generateId } from '@/lib/storage';
-import { type ReglaDescuento } from '@/lib/types';
+import { type Cargo, type ReglaDescuento } from '@/lib/types';
 
 const TIPO_LABELS: Record<ReglaDescuento['tipo'], string> = {
   tardanza: 'Tardanza',
@@ -23,8 +23,10 @@ export default function ConfiguracionPage() {
   const [reglas, setReglas] = useState<ReglaDescuento[]>([]);
   const [tipos, setTipos] = useState(() => getTipoBonos());
   const [editingMonto, setEditingMonto] = useState<number>(getActiveTipoBono().monto_base);
-  const [cargos, setCargos] = useState(() => getCargos());
-  const [newCargoName, setNewCargoName] = useState('');
+  const [cargos, setCargos] = useState<Cargo[]>(() => getCargos());
+  const [cargoName, setCargoName] = useState('');
+  const [cargoDescription, setCargoDescription] = useState('');
+  const [editingCargoId, setEditingCargoId] = useState<string | null>(null);
   const [hasChanges, setHasChanges] = useState(false);
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -40,6 +42,50 @@ export default function ConfiguracionPage() {
     setEditingMonto(getActiveTipoBono().monto_base);
     setCargos(getCargos());
   }, []);
+
+  const handleEditCargo = (cargo: Cargo) => {
+    setEditingCargoId(cargo.id);
+    setCargoName(cargo.nombre);
+    setCargoDescription(cargo.descripcion || '');
+  };
+
+  const handleCancelEditCargo = () => {
+    setEditingCargoId(null);
+    setCargoName('');
+    setCargoDescription('');
+  };
+
+  const handleSaveCargo = () => {
+    const nombre = cargoName.trim();
+    if (!nombre) return;
+
+    let newCargos: Cargo[];
+    if (editingCargoId) {
+      newCargos = cargos.map(c =>
+        c.id === editingCargoId ? { ...c, nombre, descripcion: cargoDescription } : c
+      );
+    } else {
+      newCargos = [...cargos, { id: generateId(), nombre, descripcion: cargoDescription, activo: true }];
+    }
+    saveCargos(newCargos);
+    setCargos(newCargos);
+    setCargoName('');
+    setCargoDescription('');
+    setEditingCargoId(null);
+  };
+
+  const handleDeleteCargo = (id: string) => {
+    if (!confirm('¿Desea eliminar este cargo?')) return;
+    const newCargos = cargos.filter(c => c.id !== id);
+    saveCargos(newCargos);
+    setCargos(newCargos);
+  };
+
+  const handleToggleCargoActive = (id: string) => {
+    const newCargos = cargos.map(c => c.id === id ? { ...c, activo: !c.activo } : c);
+    saveCargos(newCargos);
+    setCargos(newCargos);
+  };
 
   const handlePorcentajeChange = (id: string, value: number) => {
     setReglas(prev => prev.map(r => 
@@ -76,15 +122,6 @@ export default function ConfiguracionPage() {
       setTipos(tiposAct);
       alert('Monto base actualizado');
     }
-  };
-
-  const handleAddCargo = () => {
-    const nombre = newCargoName.trim();
-    if (!nombre) return;
-    const newCargos = [...cargos, { id: generateId(), nombre, descripcion: '', activo: true }];
-    saveCargos(newCargos as any);
-    setCargos(newCargos as any);
-    setNewCargoName('');
   };
 
   const handleReset = () => {
@@ -235,35 +272,74 @@ export default function ConfiguracionPage() {
             <div>
               <h3 className="text-lg font-semibold text-card-foreground">Configuración de Cargos</h3>
             </div>
-            <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-2 w-full sm:w-auto">
               <input
                 type="text"
-                value={newCargoName}
-                onChange={(e) => setNewCargoName(e.target.value)}
-                placeholder="Nuevo cargo"
+                value={cargoName}
+                onChange={(e) => setCargoName(e.target.value)}
+                placeholder="Nombre del cargo"
                 className="px-3 py-2 bg-input border border-border rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
               />
               <button
-                onClick={handleAddCargo}
-                className="px-3 py-1.5 bg-primary text-primary-foreground rounded-lg"
+                onClick={handleSaveCargo}
+                className="px-3 py-2 bg-primary text-primary-foreground rounded-lg"
               >
-                Agregar Cargo
+                {editingCargoId ? 'Guardar cambios' : 'Agregar Cargo'}
               </button>
             </div>
           </div>
+          <div className="mb-4">
+            <textarea
+              value={cargoDescription}
+              onChange={(e) => setCargoDescription(e.target.value)}
+              placeholder="Descripción opcional del cargo"
+              className="w-full px-3 py-2 bg-input border border-border rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-ring resize-none"
+              rows={2}
+            />
+            {editingCargoId && (
+              <button
+                type="button"
+                onClick={handleCancelEditCargo}
+                className="mt-2 text-sm text-muted-foreground underline"
+              >
+                Cancelar edición
+              </button>
+            )}
+          </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {cargos.map(c => (
-              <div key={c.id} className="p-3 bg-muted/20 rounded-lg flex items-center justify-between">
-                <div>
-                  <div className="font-medium text-foreground">{c.nombre}</div>
-                  <div className="text-sm text-muted-foreground">{c.descripcion}</div>
+              <div key={c.id} className="p-3 bg-muted/20 rounded-lg flex flex-col gap-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="font-medium text-foreground">{c.nombre}</div>
+                    <div className="text-sm text-muted-foreground">{c.descripcion || 'Sin descripción'}</div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => handleEditCargo(c)}
+                      className="px-2 py-1 rounded-lg bg-primary text-primary-foreground"
+                    >
+                      Editar
+                    </button>
+                    <button
+                      onClick={() => handleDeleteCargo(c.id)}
+                      className="px-2 py-1 rounded-lg bg-destructive text-destructive-foreground"
+                    >
+                      Eliminar
+                    </button>
+                  </div>
                 </div>
-                <div>
-                  <button onClick={() => {
-                    const newC = cargos.map(x => x.id === c.id ? { ...x, activo: !x.activo } : x);
-                    saveCargos(newC);
-                    setCargos(newC);
-                  }} className="px-2 py-1 rounded-lg bg-muted">{c.activo ? 'Desactivar' : 'Activar'}</button>
+                <div className="flex items-center gap-3">
+                  <span className={`inline-flex px-2 py-1 rounded-full text-xs font-medium ${c.activo ? 'bg-green-100 text-green-700' : 'bg-muted text-muted-foreground'}`}>
+                    {c.activo ? 'Activo' : 'Inactivo'}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => handleToggleCargoActive(c.id)}
+                    className="px-2 py-1 rounded-lg bg-muted text-foreground"
+                  >
+                    {c.activo ? 'Desactivar' : 'Activar'}
+                  </button>
                 </div>
               </div>
             ))}

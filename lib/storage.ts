@@ -215,7 +215,7 @@ export async function saveCargosApi(cargos: Cargo[]): Promise<void> {
 }
 
 export function getCargoNameForEmpleado(empleado: any, cargos: Cargo[] = []): string {
-  const list = cargos.length > 0 ? cargos : [];
+  const list = cargos.length > 0 ? cargos : getCargos();
   if (empleado.cargoId) {
     const c = list.find(x => x.id === empleado.cargoId);
     return c ? c.nombre : (empleado.cargo || 'N/A');

@@ -197,7 +197,6 @@ export default function EmpleadosPage() {
                         <td className="p-4 text-sm text-foreground font-medium">{empleado.nombreCompleto}</td>
                         <td className="p-4 text-sm text-foreground">{empleado.dni}</td>
                         <td className="p-4 text-sm text-foreground">{getCargoNameForEmpleado(empleado)}</td>
-                        <td className="p-4 text-sm text-foreground">{getCargoNameForEmpleado(empleado)}</td>
                         <td className="p-4 text-sm text-foreground whitespace-nowrap">
                           {new Date(empleado.fechaIngreso).toLocaleDateString('es-PE')}
                         </td>
