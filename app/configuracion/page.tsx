@@ -21,9 +21,18 @@ const TIPO_LABELS: Record<ReglaDescuento['tipo'], string> = {
 
 export default function ConfiguracionPage() {
   const [reglas, setReglas] = useState<ReglaDescuento[]>([]);
-  const [tipos, setTipos] = useState(() => getTipoBonos());
+  const [tipos, setTipos] = useState(() => getTipoBonos().slice().sort((a, b) => a.nombre.localeCompare(b.nombre)));
   const [editingMonto, setEditingMonto] = useState<number>(getActiveTipoBono().monto_base);
-  const [cargos, setCargos] = useState<Cargo[]>(() => getCargos());
+  const [cargos, setCargos] = useState<Cargo[]>(() => getCargos().slice().sort((a, b) => {
+    if (a.activo === b.activo) return a.nombre.localeCompare(b.nombre);
+    return a.activo ? -1 : 1;
+  }));
+
+  const sortCargos = (items: Cargo[]) =>
+    items.slice().sort((a, b) => {
+      if (a.activo === b.activo) return a.nombre.localeCompare(b.nombre);
+      return a.activo ? -1 : 1;
+    });
   const [cargoName, setCargoName] = useState('');
   const [cargoDescription, setCargoDescription] = useState('');
   const [editingCargoId, setEditingCargoId] = useState<string | null>(null);
@@ -38,10 +47,16 @@ export default function ConfiguracionPage() {
   }, []);
 
   useEffect(() => {
-    setTipos(getTipoBonos());
+    setTipos(getTipoBonos().slice().sort((a, b) => a.nombre.localeCompare(b.nombre)));
     setEditingMonto(getActiveTipoBono().monto_base);
-    setCargos(getCargos());
+    setCargos(sortCargos(getCargos()));
   }, []);
+
+  const handleTipoActiveChange = (id: string, activo: boolean) => {
+    const newTipos = tipos.map(t => t.id === id ? { ...t, activo } : t);
+    setTipos(newTipos);
+    setHasChanges(true);
+  };
 
   const handleEditCargo = (cargo: Cargo) => {
     setEditingCargoId(cargo.id);
@@ -68,7 +83,7 @@ export default function ConfiguracionPage() {
       newCargos = [...cargos, { id: generateId(), nombre, descripcion: cargoDescription, activo: true }];
     }
     saveCargos(newCargos);
-    setCargos(newCargos);
+    setCargos(sortCargos(newCargos));
     setCargoName('');
     setCargoDescription('');
     setEditingCargoId(null);
@@ -78,13 +93,13 @@ export default function ConfiguracionPage() {
     if (!confirm('¿Desea eliminar este cargo?')) return;
     const newCargos = cargos.filter(c => c.id !== id);
     saveCargos(newCargos);
-    setCargos(newCargos);
+    setCargos(sortCargos(newCargos));
   };
 
   const handleToggleCargoActive = (id: string) => {
     const newCargos = cargos.map(c => c.id === id ? { ...c, activo: !c.activo } : c);
     saveCargos(newCargos);
-    setCargos(newCargos);
+    setCargos(sortCargos(newCargos));
   };
 
   const handlePorcentajeChange = (id: string, value: number) => {
@@ -104,7 +119,6 @@ export default function ConfiguracionPage() {
   const handleSave = () => {
     setSaving(true);
     saveReglas(reglas);
-    // save tipos if changed
     saveTipoBonos(tipos);
     setTimeout(() => {
       setSaving(false);
@@ -266,6 +280,38 @@ export default function ConfiguracionPage() {
             </div>
           </div>
         </div>
+        {/* Tipos de Bono */}
+        <div className="bg-card rounded-lg border border-border p-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4">
+            <div>
+              <h3 className="text-lg font-semibold text-card-foreground">Tipos de Bono</h3>
+              <p className="text-sm text-muted-foreground">Activa o desactiva cada tipo de bono para que se aplique en el cálculo actual.</p>
+            </div>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {tipos.map((tipo) => (
+              <div key={tipo.id} className="p-4 bg-muted/20 rounded-lg flex flex-col gap-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <div className="font-medium text-foreground">{tipo.nombre}</div>
+                    <div className="text-sm text-muted-foreground">Monto base: S/ {tipo.monto_base.toFixed(2)}</div>
+                  </div>
+                  <label className="inline-flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={tipo.activo}
+                      onChange={(e) => handleTipoActiveChange(tipo.id, e.target.checked)}
+                      className="w-4 h-4 rounded"
+                    />
+                    {tipo.activo ? 'Activo' : 'Inactivo'}
+                  </label>
+                </div>
+                <div className="text-sm text-muted-foreground">Periodicidad: {tipo.periodicidad}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+
         {/* Cargos (categorías) */}
         <div className="bg-card rounded-lg border border-border p-4">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4">
