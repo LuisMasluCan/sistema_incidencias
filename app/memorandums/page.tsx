@@ -12,16 +12,17 @@ import {
   X
 } from 'lucide-react';
 import {
-  getEmpleados,
-  getMemorandums,
-  saveMemorandum,
-  deleteMemorandum,
-  getIncidenciaById,
-  saveIncidencia,
-  generateId
+  getEmpleadosApi,
+  getMemorandumsApi,
+  saveMemorandumApi,
+  deleteMemorandumApi,
+  getIncidenciaByIdApi,
+  saveIncidenciaApi,
+  generateId,
+  getActiveTipoBonoApi
 } from '@/lib/storage';
-import { ARTICULOS_REGLAMENTO, type Empleado, type Memorandum } from '@/lib/types';
-import { getCargoNameForEmpleado, getActiveTipoBono } from '@/lib/storage';
+import { ARTICULOS_REGLAMENTO, type Empleado, type Memorandum, type TipoBono } from '@/lib/types';
+import { getCargoNameForEmpleado } from '@/lib/storage';
 import { EMPRESA } from '@/lib/empresa';
 import jsPDF from 'jspdf';
 
@@ -34,6 +35,7 @@ function MemorandumsContent() {
   const searchParams = useSearchParams();
   const [memorandums, setMemorandums] = useState<(Memorandum & { empleadoNombre: string })[]>([]);
   const [empleados, setEmpleados] = useState<Empleado[]>([]);
+  const [activeTipoBono, setActiveTipoBono] = useState<TipoBono | null>(null);
   const [filteredMemorandums, setFilteredMemorandums] = useState<(Memorandum & { empleadoNombre: string })[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [showModal, setShowModal] = useState(false);
@@ -42,41 +44,49 @@ function MemorandumsContent() {
   const [prefilledData, setPrefilledData] = useState<{ empleadoId?: string; incidenciaId?: string } | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const loadData = () => {
-    const emps = getEmpleados();
+  const loadData = async () => {
+    setLoading(true);
+    const emps = await getEmpleadosApi();
     setEmpleados(emps);
-    
-    const memos = getMemorandums().map(m => {
+    const tipoBono = await getActiveTipoBonoApi();
+
+    const memos = (await getMemorandumsApi()).map(m => {
       const emp = emps.find(e => e.id === m.empleadoId);
       return {
         ...m,
         empleadoNombre: emp?.nombreCompleto || 'Desconocido'
       };
     }).sort((a, b) => parseLocalDate(b.fecha).getTime() - parseLocalDate(a.fecha).getTime());
-    
+
     setMemorandums(memos);
+    setActiveTipoBono(tipoBono);
     setLoading(false);
   };
 
   useEffect(() => {
-    loadData();
-    
-    // Check for prefilled data from URL
-    const incidenciaId = searchParams.get('incidenciaId');
-    const empleadoId = searchParams.get('empleadoId');
-    const viewId = searchParams.get('id');
-    
-    if (viewId) {
-      const memo = getMemorandums().find(m => m.id === viewId);
-      if (memo) {
-        const emp = getEmpleados().find(e => e.id === memo.empleadoId);
-        setViewingMemorandum({ ...memo, empleadoNombre: emp?.nombreCompleto || 'Desconocido' });
-        setShowPreviewModal(true);
+    const initialize = async () => {
+      await loadData();
+
+      // Check for prefilled data from URL
+      const incidenciaId = searchParams.get('incidenciaId');
+      const empleadoId = searchParams.get('empleadoId');
+      const viewId = searchParams.get('id');
+
+      if (viewId) {
+        const memo = (await getMemorandumsApi()).find(m => m.id === viewId);
+        if (memo) {
+          const emps = await getEmpleadosApi();
+          const emp = emps.find(e => e.id === memo.empleadoId);
+          setViewingMemorandum({ ...memo, empleadoNombre: emp?.nombreCompleto || 'Desconocido' });
+          setShowPreviewModal(true);
+        }
+      } else if (incidenciaId && empleadoId) {
+        setPrefilledData({ incidenciaId, empleadoId });
+        setShowModal(true);
       }
-    } else if (incidenciaId && empleadoId) {
-      setPrefilledData({ incidenciaId, empleadoId });
-      setShowModal(true);
-    }
+    };
+
+    initialize();
   }, [searchParams]);
 
   useEffect(() => {
@@ -93,26 +103,26 @@ function MemorandumsContent() {
     setFilteredMemorandums(filtered);
   }, [memorandums, searchTerm]);
 
-  const handleSave = (memorandum: Memorandum) => {
-    saveMemorandum(memorandum);
+  const handleSave = async (memorandum: Memorandum) => {
+    await saveMemorandumApi(memorandum);
     
     // Link to incidencia if applicable
     if (memorandum.incidenciaId) {
-      const incidencia = getIncidenciaById(memorandum.incidenciaId);
+      const incidencia = await getIncidenciaByIdApi(memorandum.incidenciaId);
       if (incidencia) {
-        saveIncidencia({ ...incidencia, memorandumId: memorandum.id });
+        await saveIncidenciaApi({ ...incidencia, memorandumId: memorandum.id });
       }
     }
     
-    loadData();
+    await loadData();
     setShowModal(false);
     setPrefilledData(null);
   };
 
-  const handleDelete = (id: string) => {
+  const handleDelete = async (id: string) => {
     if (confirm('¿Está seguro de eliminar este memorándum?')) {
-      deleteMemorandum(id);
-      loadData();
+      await deleteMemorandumApi(id);
+      await loadData();
     }
   };
 
@@ -349,6 +359,7 @@ function MemorandumsContent() {
         <MemorandumModal
           empleados={empleados.filter(e => e.estado === 'activo')}
           prefilledData={prefilledData}
+          activeTipoBono={activeTipoBono}
           onSave={handleSave}
           onClose={() => {
             setShowModal(false);
@@ -390,36 +401,54 @@ export default function MemorandumsPage() {
 function MemorandumModal({
   empleados,
   prefilledData,
+  activeTipoBono,
   onSave,
   onClose
 }: {
   empleados: Empleado[];
   prefilledData: { empleadoId?: string; incidenciaId?: string } | null;
+  activeTipoBono: TipoBono | null;
   onSave: (memorandum: Memorandum) => void;
   onClose: () => void;
 }) {
-  const [formData, setFormData] = useState<Memorandum>(() => {
-    const incidencia = prefilledData?.incidenciaId 
-      ? getIncidenciaById(prefilledData.incidenciaId) 
-      : null;
-    
-    return {
-      id: generateId(),
-      empleadoId: prefilledData?.empleadoId || empleados[0]?.id || '',
-      incidenciaId: prefilledData?.incidenciaId,
-      fecha: new Date().toISOString().split('T')[0],
-      asunto: incidencia ? `Falta ${incidencia.tipoFalta} - ${incidencia.categoria}` : '',
-      descripcion: incidencia 
-        ? `Por medio del presente, se le comunica que el día ${parseLocalDate(incidencia.fecha).toLocaleDateString('es-PE')}, usted incurrió en una falta ${incidencia.tipoFalta} consistente en: ${incidencia.categoria}. ${incidencia.descripcion}`
-        : '',
-      baseNormativa: [],
-      montoBonoAfectado: 0,
-      negativaFirmar: incidencia?.negativaFirmar || false,
-      testigos: incidencia?.testigos || ''
-    };
-  });
+  const [formData, setFormData] = useState<Memorandum>(() => ({
+    id: generateId(),
+    empleadoId: prefilledData?.empleadoId || empleados[0]?.id || '',
+    incidenciaId: prefilledData?.incidenciaId,
+    fecha: new Date().toISOString().split('T')[0],
+    asunto: '',
+    descripcion: '',
+    baseNormativa: [],
+    montoBonoAfectado: 0,
+    negativaFirmar: false,
+    testigos: ''
+  }));
 
   const [selectedArticulos, setSelectedArticulos] = useState<string[]>(formData.baseNormativa);
+
+  useEffect(() => {
+    if (!prefilledData?.incidenciaId) return;
+    let mounted = true;
+
+    const loadIncidencia = async () => {
+      const incidencia = await getIncidenciaByIdApi(prefilledData.incidenciaId!);
+      if (!mounted || !incidencia) return;
+
+      setFormData((current) => ({
+        ...current,
+        asunto: `Falta ${incidencia.tipoFalta} - ${incidencia.categoria}`,
+        descripcion: `Por medio del presente, se le comunica que el día ${parseLocalDate(incidencia.fecha).toLocaleDateString('es-PE')}, usted incurrió en una falta ${incidencia.tipoFalta} consistente en: ${incidencia.categoria}. ${incidencia.descripcion}`,
+        negativaFirmar: incidencia.negativaFirmar || false,
+        testigos: incidencia.testigos || ''
+      }));
+    };
+
+    loadIncidencia();
+
+    return () => {
+      mounted = false;
+    };
+  }, [prefilledData]);
 
   const handleArticuloToggle = (articulo: string) => {
     const newSelected = selectedArticulos.includes(articulo)
@@ -539,7 +568,7 @@ function MemorandumModal({
               value={formData.montoBonoAfectado}
               onChange={(e) => setFormData({ ...formData, montoBonoAfectado: parseFloat(e.target.value) || 0 })}
               min="0"
-              max={getActiveTipoBono().monto_base}
+              max={activeTipoBono?.monto_base ?? 0}
               step="0.01"
               className="w-full px-4 py-2 bg-input border border-border rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
             />

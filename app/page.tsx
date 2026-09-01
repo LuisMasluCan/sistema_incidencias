@@ -11,14 +11,14 @@ import {
   Activity
 } from 'lucide-react';
 import {
-  getDashboardStats,
-  getEmpleados,
-  checkAcumulacionFaltas,
-  getIncidencias,
+  getDashboardStatsApi,
+  getEmpleadosApi,
+  checkAcumulacionFaltasApi,
+  getIncidenciasApi,
   getCurrentMonth,
   getMonthName
 } from '@/lib/storage';
-import { getCargoNameForEmpleado, getActiveTipoBono } from '@/lib/storage';
+import { getCargoNameForEmpleado } from '@/lib/storage';
 import type { Empleado, Incidencia } from '@/lib/types';
 
 interface DashboardStats {
@@ -43,15 +43,15 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const loadData = () => {
-      const dashStats = getDashboardStats();
+    const loadData = async () => {
+      const dashStats = await getDashboardStatsApi();
       setStats(dashStats);
 
-      const empleados = getEmpleados().filter(e => e.estado === 'activo');
+      const empleados = (await getEmpleadosApi()).filter(e => e.estado === 'activo');
       const alertasEmpleados: AlertaEmpleado[] = [];
       
-      empleados.forEach(emp => {
-        const check = checkAcumulacionFaltas(emp.id);
+      for (const emp of empleados) {
+        const check = await checkAcumulacionFaltasApi(emp.id);
         if (check.alerta) {
           alertasEmpleados.push({
             empleado: emp,
@@ -59,10 +59,10 @@ export default function DashboardPage() {
             mensaje: check.mensaje
           });
         }
-      });
+      }
       setAlertas(alertasEmpleados);
 
-      const incidencias = getIncidencias();
+      const incidencias = await getIncidenciasApi();
       const currentMonth = getCurrentMonth();
       const recent = incidencias
         .filter(i => i.fecha.substring(0, 7) === currentMonth)

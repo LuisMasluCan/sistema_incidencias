@@ -12,18 +12,19 @@ import {
   AlertCircle
 } from 'lucide-react';
 import {
-  getEmpleados,
-  saveEmpleado,
-  deleteEmpleado,
+  getEmpleadosApi,
+  saveEmpleadoApi,
+  deleteEmpleadoApi,
   generateId,
-  checkAcumulacionFaltas,
-  getIncidenciasByEmpleado,
-  getMemorandumsByEmpleado,
-  getBonosDelMes,
-  getCurrentMonth
+  checkAcumulacionFaltasApi,
+  getIncidenciasByEmpleadoApi,
+  getMemorandumsByEmpleadoApi,
+  getBonosDelMesApi,
+  getCurrentMonth,
+  getCargosApi
 } from '@/lib/storage';
-import { type Cargo, type Empleado } from '@/lib/types';
-import { getCargos, getCargoNameForEmpleado } from '@/lib/storage';
+import { type Cargo, type Empleado, type BonoEmpleado, type Incidencia, type Memorandum } from '@/lib/types';
+import { getCargoNameForEmpleado } from '@/lib/storage';
 
 type CargoType = Empleado['cargo'];
 
@@ -38,11 +39,30 @@ export default function EmpleadosPage() {
   const [editingEmpleado, setEditingEmpleado] = useState<Empleado | null>(null);
   const [viewingEmpleado, setViewingEmpleado] = useState<Empleado | null>(null);
   const [loading, setLoading] = useState(true);
-  const [cargos, setCargos] = useState(() => getCargos());
+  const [cargos, setCargos] = useState<Cargo[]>([]);
+  const [alertasMap, setAlertasMap] = useState<Record<string, { alerta: boolean; cantidad: number; mensaje: string }>>({});
+  const [bonosMap, setBonosMap] = useState<Record<string, BonoEmpleado>>({});
+  const [selectedIncidencias, setSelectedIncidencias] = useState<Incidencia[]>([]);
+  const [selectedMemorandums, setSelectedMemorandums] = useState<Memorandum[]>([]);
+  const [selectedBono, setSelectedBono] = useState<BonoEmpleado | null>(null);
 
-  const loadEmpleados = () => {
-    const data = getEmpleados();
+  const loadEmpleados = async () => {
+    setLoading(true);
+    const [data, cargosData, bonos] = await Promise.all([
+      getEmpleadosApi(),
+      getCargosApi(),
+      getBonosDelMesApi(getCurrentMonth())
+    ]);
+
+    const alertas: Record<string, { alerta: boolean; cantidad: number; mensaje: string }> = {};
+    await Promise.all(data.map(async (emp) => {
+      alertas[emp.id] = await checkAcumulacionFaltasApi(emp.id);
+    }));
+
     setEmpleados(data);
+    setCargos(cargosData);
+    setAlertasMap(alertas);
+    setBonosMap(bonos.reduce((acc, bono) => ({ ...acc, [bono.empleadoId]: bono }), {} as Record<string, BonoEmpleado>));
     setLoading(false);
   };
 
@@ -72,17 +92,17 @@ export default function EmpleadosPage() {
     setFilteredEmpleados(filtered);
   }, [empleados, searchTerm, filterCargo, filterEstado]);
 
-  const handleSave = (empleado: Empleado) => {
-    saveEmpleado(empleado);
-    loadEmpleados();
+  const handleSave = async (empleado: Empleado) => {
+    await saveEmpleadoApi(empleado);
+    await loadEmpleados();
     setShowModal(false);
     setEditingEmpleado(null);
   };
 
-  const handleDelete = (id: string) => {
+  const handleDelete = async (id: string) => {
     if (confirm('¿Está seguro de eliminar este empleado?')) {
-      deleteEmpleado(id);
-      loadEmpleados();
+      await deleteEmpleadoApi(id);
+      await loadEmpleados();
     }
   };
 
@@ -91,7 +111,23 @@ export default function EmpleadosPage() {
     setShowModal(true);
   };
 
-  const handleView = (empleado: Empleado) => {
+  const handleView = async (empleado: Empleado) => {
+    const [incidencias, memorandums, bonos] = await Promise.all([
+      getIncidenciasByEmpleadoApi(empleado.id),
+      getMemorandumsByEmpleadoApi(empleado.id),
+      getBonosDelMesApi(getCurrentMonth())
+    ]);
+
+    setSelectedIncidencias(incidencias);
+    setSelectedMemorandums(memorandums);
+    setSelectedBono(bonos.find(b => b.empleadoId === empleado.id) ?? {
+      empleadoId: empleado.id,
+      mes: getCurrentMonth(),
+      bonoBruto: 0,
+      deducciones: [],
+      bonoLiquido: 0,
+      perdidaTotal: false
+    });
     setViewingEmpleado(empleado);
     setShowViewModal(true);
   };
@@ -191,7 +227,7 @@ export default function EmpleadosPage() {
                   </tr>
                 ) : (
                   filteredEmpleados.map((empleado) => {
-                    const alerta = checkAcumulacionFaltas(empleado.id);
+                    const alerta = alertasMap[empleado.id] ?? { alerta: false, cantidad: 0, mensaje: '' };
                     return (
                       <tr key={empleado.id} className="border-b border-border last:border-0 hover:bg-muted/30">
                         <td className="p-4 text-sm text-foreground font-medium">{empleado.nombreCompleto}</td>
@@ -266,12 +302,19 @@ export default function EmpleadosPage() {
       )}
 
       {/* View Modal */}
-      {showViewModal && viewingEmpleado && (
+      {showViewModal && viewingEmpleado && selectedBono && (
         <ExpedienteModal
           empleado={viewingEmpleado}
+          incidencias={selectedIncidencias}
+          memorandums={selectedMemorandums}
+          bono={selectedBono}
+          alerta={alertasMap[viewingEmpleado.id] ?? { alerta: false, cantidad: 0, mensaje: '' }}
           onClose={() => {
             setShowViewModal(false);
             setViewingEmpleado(null);
+            setSelectedIncidencias([]);
+            setSelectedMemorandums([]);
+            setSelectedBono(null);
           }}
         />
       )}
@@ -410,22 +453,19 @@ function EmpleadoModal({
 
 function ExpedienteModal({
   empleado,
+  incidencias,
+  memorandums,
+  bono,
+  alerta,
   onClose
 }: {
   empleado: Empleado;
+  incidencias: Incidencia[];
+  memorandums: Memorandum[];
+  bono: BonoEmpleado;
+  alerta: { alerta: boolean; cantidad: number; mensaje: string };
   onClose: () => void;
 }) {
-  const incidencias = getIncidenciasByEmpleado(empleado.id);
-  const memorandums = getMemorandumsByEmpleado(empleado.id);
-  const alerta = checkAcumulacionFaltas(empleado.id);
-  const bono = getBonosDelMes(getCurrentMonth()).find(b => b.empleadoId === empleado.id) ?? {
-    empleadoId: empleado.id,
-    mes: getCurrentMonth(),
-    bonoBruto: 0,
-    deducciones: [],
-    bonoLiquido: 0,
-    perdidaTotal: false
-  };
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">

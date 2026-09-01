@@ -10,30 +10,35 @@ import {
   ChevronUp
 } from 'lucide-react';
 import {
-  getEmpleados,
-  getBonosDelMes,
+  getEmpleadosApi,
+  getBonosDelMesApi,
   getCurrentMonth,
-  getMonthName
+  getMonthName,
+  getActiveTipoBonoApi
 } from '@/lib/storage';
-import { type Empleado, type BonoEmpleado } from '@/lib/types';
-import { getCargoNameForEmpleado, getActiveTipoBono } from '@/lib/storage';
+import { type Empleado, type BonoEmpleado, type TipoBono } from '@/lib/types';
+import { getCargoNameForEmpleado } from '@/lib/storage';
 
 export default function BonosPage() {
   const [bonos, setBonos] = useState<(BonoEmpleado & { empleado: Empleado })[]>([]);
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
   const [mesSeleccionado, setMesSeleccionado] = useState(getCurrentMonth());
   const [loading, setLoading] = useState(true);
+  const [activeTipoBono, setActiveTipoBono] = useState<TipoBono | null>(null);
 
-  const loadData = () => {
-    const empleados = getEmpleados().filter(e => e.estado === 'activo');
-    const bonosDelMes = getBonosDelMes(mesSeleccionado);
-    
+  const loadData = async () => {
+    setLoading(true);
+    const empleados = (await getEmpleadosApi()).filter(e => e.estado === 'activo');
+    const bonosDelMes = await getBonosDelMesApi(mesSeleccionado);
+    const tipoBono = await getActiveTipoBonoApi();
+
     const bonosConEmpleado = bonosDelMes.map(b => {
-      const emp = empleados.find(e => e.id === b.empleadoId)!;
-      return { ...b, empleado: emp };
-    }).filter(b => b.empleado);
-    
+      const emp = empleados.find(e => e.id === b.empleadoId);
+      return emp ? { ...b, empleado: emp } : null;
+    }).filter((b): b is BonoEmpleado & { empleado: Empleado } => b !== null);
+
     setBonos(bonosConEmpleado);
+    setActiveTipoBono(tipoBono);
     setLoading(false);
   };
 
@@ -92,7 +97,7 @@ export default function BonosPage() {
           <div>
             <h1 className="text-2xl lg:text-3xl font-bold text-foreground">Control de Bonos</h1>
             <p className="text-muted-foreground mt-1">
-              Gestión de bonos por disciplina - Bono Base: S/ {getActiveTipoBono().monto_base.toFixed(2)}
+              Gestión de bonos por disciplina - Bono Base: S/ {activeTipoBono ? activeTipoBono.monto_base.toFixed(2) : '0.00'}
             </p>
           </div>
           <select

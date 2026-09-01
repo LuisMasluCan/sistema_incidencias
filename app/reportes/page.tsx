@@ -9,15 +9,16 @@ import {
   Calendar
 } from 'lucide-react';
 import {
-  getEmpleados,
-  getIncidencias,
-  getMemorandums,
-  getBonosDelMes,
+  getEmpleadosApi,
+  getIncidenciasApi,
+  getMemorandumsApi,
+  getBonosDelMesApi,
+  getCargosApi,
   getCurrentMonth,
   getMonthName,
   exportToCSV
 } from '@/lib/storage';
-import { type Empleado, type Incidencia, type BonoEmpleado } from '@/lib/types';
+import { type Cargo, type Empleado, type Incidencia, type BonoEmpleado, type Memorandum } from '@/lib/types';
 import { getCargoNameForEmpleado } from '@/lib/storage';
 import { EMPRESA } from '@/lib/empresa';
 import jsPDF from 'jspdf';
@@ -32,21 +33,38 @@ export default function ReportesPage() {
     totalBonos: 0
   });
   const [loading, setLoading] = useState(true);
+  const [empleados, setEmpleados] = useState<Empleado[]>([]);
+  const [cargos, setCargos] = useState<Cargo[]>([]);
+  const [incidencias, setIncidencias] = useState<Incidencia[]>([]);
+  const [memorandums, setMemorandums] = useState<Memorandum[]>([]);
+  const [bonos, setBonos] = useState<BonoEmpleado[]>([]);
 
-  const loadData = () => {
-    const empleados = getEmpleados();
-    const incidencias = getIncidencias().filter(i => i.fecha.substring(0, 7) === mesSeleccionado);
-    const memorandums = getMemorandums().filter(m => m.fecha.substring(0, 7) === mesSeleccionado);
-    const bonos = getBonosDelMes(mesSeleccionado);
-    
+  const loadData = async () => {
+    setLoading(true);
+    const [empleadosData, cargosData, incidenciasData, memorandumsData, bonosData] = await Promise.all([
+      getEmpleadosApi(),
+      getCargosApi(),
+      getIncidenciasApi(),
+      getMemorandumsApi(),
+      getBonosDelMesApi(mesSeleccionado)
+    ]);
+
+    const incidenciasMes = incidenciasData.filter(i => i.fecha.substring(0, 7) === mesSeleccionado);
+    const memorandumsMes = memorandumsData.filter(m => m.fecha.substring(0, 7) === mesSeleccionado);
+    const totalBonos = bonosData.reduce((sum, b) => sum + b.bonoLiquido, 0);
+
+    setEmpleados(empleadosData);
+    setCargos(cargosData);
+    setIncidencias(incidenciasMes);
+    setMemorandums(memorandumsMes);
+    setBonos(bonosData);
     setStats({
-      totalEmpleados: empleados.length,
-      empleadosActivos: empleados.filter(e => e.estado === 'activo').length,
-      incidenciasDelMes: incidencias.length,
-      memorandumsDelMes: memorandums.length,
-      totalBonos: bonos.reduce((sum, b) => sum + b.bonoLiquido, 0)
+      totalEmpleados: empleadosData.length,
+      empleadosActivos: empleadosData.filter(e => e.estado === 'activo').length,
+      incidenciasDelMes: incidenciasMes.length,
+      memorandumsDelMes: memorandumsMes.length,
+      totalBonos
     });
-    
     setLoading(false);
   };
 
@@ -70,32 +88,28 @@ export default function ReportesPage() {
   };
 
   const exportIncidenciasCSV = () => {
-    const empleados = getEmpleados();
-    const incidencias = getIncidencias()
-      .filter(i => i.fecha.substring(0, 7) === mesSeleccionado)
-      .map(i => {
-        const emp = empleados.find(e => e.id === i.empleadoId);
-        return {
-          Fecha: new Date(i.fecha).toLocaleDateString('es-PE'),
-          Empleado: emp?.nombreCompleto || 'Desconocido',
-          DNI: emp?.dni || 'N/A',
-          Cargo: emp ? getCargoNameForEmpleado(emp) : 'N/A',
-          TipoFalta: i.tipoFalta === 'grave' ? 'Grave' : 'Leve',
-          Categoria: i.categoria,
-          Descripcion: i.descripcion,
-          MedidaAplicada: i.medidaAplicada,
-          Evidencia: i.evidencia,
-          NegativaFirmar: i.negativaFirmar ? 'Sí' : 'No',
-          Testigos: i.testigos
-        };
-      });
+    const incidenciasMes = incidencias.map(i => {
+      const emp = empleados.find(e => e.id === i.empleadoId);
+      return {
+        Fecha: new Date(i.fecha).toLocaleDateString('es-PE'),
+        Empleado: emp?.nombreCompleto || 'Desconocido',
+        DNI: emp?.dni || 'N/A',
+        Cargo: emp ? getCargoNameForEmpleado(emp, cargos) : 'N/A',
+        TipoFalta: i.tipoFalta === 'grave' ? 'Grave' : 'Leve',
+        Categoria: i.categoria,
+        Descripcion: i.descripcion,
+        MedidaAplicada: i.medidaAplicada,
+        Evidencia: i.evidencia,
+        NegativaFirmar: i.negativaFirmar ? 'Sí' : 'No',
+        Testigos: i.testigos
+      };
+    });
     
-    exportToCSV(incidencias, `incidencias_${mesSeleccionado}`);
+    exportToCSV(incidenciasMes, `incidencias_${mesSeleccionado}`);
   };
 
   const exportBonosCSV = () => {
-    const empleados = getEmpleados();
-    const bonos = getBonosDelMes(mesSeleccionado).map(b => {
+    const bonosData = bonos.map(b => {
       const emp = empleados.find(e => e.id === b.empleadoId);
       const deducciones = b.deducciones.map(d => `${d.concepto}: -S/${d.monto.toFixed(2)}`).join('; ');
       return {
@@ -114,21 +128,21 @@ export default function ReportesPage() {
   };
 
   const exportEmpleadosCSV = () => {
-    const empleados = getEmpleados().map(e => ({
+    const empleadosData = empleados.map(e => ({
       NombreCompleto: e.nombreCompleto,
       DNI: e.dni,
-      Cargo: getCargoNameForEmpleado(e),
+      Cargo: getCargoNameForEmpleado(e, cargos),
       FechaIngreso: new Date(e.fechaIngreso).toLocaleDateString('es-PE'),
       Estado: e.estado === 'activo' ? 'Activo' : 'Inactivo'
     }));
     
-    exportToCSV(empleados, 'empleados');
+    exportToCSV(empleadosData, 'empleados');
   };
 
   const exportBonosPDF = () => {
     const doc = new jsPDF();
-    const empleados = getEmpleados();
-    const bonos = getBonosDelMes(mesSeleccionado);
+    const empleadosData = empleados;
+    const bonosData = bonos;
     
     // Header
     doc.setFontSize(14);

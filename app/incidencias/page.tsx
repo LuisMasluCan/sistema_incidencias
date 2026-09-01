@@ -12,12 +12,12 @@ import {
   AlertCircle
 } from 'lucide-react';
 import {
-  getEmpleados,
-  getIncidencias,
-  saveIncidencia,
-  deleteIncidencia,
+  getEmpleadosApi,
+  getIncidenciasApi,
+  saveIncidenciaApi,
+  deleteIncidenciaApi,
   generateId,
-  checkAcumulacionFaltas
+  checkAcumulacionFaltasApi
 } from '@/lib/storage';
 import {
   FALTAS_LEVES,
@@ -39,18 +39,20 @@ export default function IncidenciasPage() {
   const [editingIncidencia, setEditingIncidencia] = useState<Incidencia | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const loadData = () => {
-    const emps = getEmpleados();
+  const loadData = async () => {
+    setLoading(true);
+    const emps = await getEmpleadosApi();
     setEmpleados(emps);
-    
-    const incs = getIncidencias().map(i => {
+
+    const incidenciasData = await getIncidenciasApi();
+    const incs = incidenciasData.map(i => {
       const emp = emps.find(e => e.id === i.empleadoId);
       return {
         ...i,
         empleadoNombre: emp?.nombreCompleto || 'Desconocido'
       };
     }).sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime());
-    
+
     setIncidencias(incs);
     setLoading(false);
   };
@@ -77,17 +79,17 @@ export default function IncidenciasPage() {
     setFilteredIncidencias(filtered);
   }, [incidencias, searchTerm, filterTipo]);
 
-  const handleSave = (incidencia: Incidencia) => {
-    saveIncidencia(incidencia);
-    loadData();
+  const handleSave = async (incidencia: Incidencia) => {
+    await saveIncidenciaApi(incidencia);
+    await loadData();
     setShowModal(false);
     setEditingIncidencia(null);
   };
 
-  const handleDelete = (id: string) => {
+  const handleDelete = async (id: string) => {
     if (confirm('¿Está seguro de eliminar esta incidencia?')) {
-      deleteIncidencia(id);
-      loadData();
+      await deleteIncidenciaApi(id);
+      await loadData();
     }
   };
 
@@ -289,10 +291,23 @@ function IncidenciaModal({
   const [alertaAcumulacion, setAlertaAcumulacion] = useState<{ alerta: boolean; mensaje: string }>({ alerta: false, mensaje: '' });
 
   useEffect(() => {
-    if (formData.empleadoId) {
-      const check = checkAcumulacionFaltas(formData.empleadoId);
-      setAlertaAcumulacion(check);
-    }
+    let mounted = true;
+    const loadAlerta = async () => {
+      if (!formData.empleadoId) {
+        setAlertaAcumulacion({ alerta: false, mensaje: '' });
+        return;
+      }
+      const check = await checkAcumulacionFaltasApi(formData.empleadoId);
+      if (mounted) {
+        setAlertaAcumulacion(check);
+      }
+    };
+
+    loadAlerta();
+
+    return () => {
+      mounted = false;
+    };
   }, [formData.empleadoId]);
 
   const categorias = formData.tipoFalta === 'leve' ? FALTAS_LEVES : FALTAS_GRAVES;

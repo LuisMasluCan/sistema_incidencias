@@ -8,8 +8,18 @@ import {
   RotateCcw,
   Info
 } from 'lucide-react';
-import { getReglas, saveReglas, getTipoBonos, saveTipoBonos, getActiveTipoBono, getCargos, saveCargos, generateId } from '@/lib/storage';
-import { type Cargo, type ReglaDescuento } from '@/lib/types';
+import { getActiveTipoBono } from '@/lib/business';
+import {
+  getReglasApi,
+  saveReglasApi,
+  getTipoBonosApi,
+  saveTipoBonosApi,
+  getActiveTipoBonoApi,
+  getCargosApi,
+  saveCargosApi,
+  generateId
+} from '@/lib/storage';
+import { type Cargo, type ReglaDescuento, type TipoBono } from '@/lib/types';
 
 const TIPO_LABELS: Record<ReglaDescuento['tipo'], string> = {
   tardanza: 'Tardanza',
@@ -21,12 +31,10 @@ const TIPO_LABELS: Record<ReglaDescuento['tipo'], string> = {
 
 export default function ConfiguracionPage() {
   const [reglas, setReglas] = useState<ReglaDescuento[]>([]);
-  const [tipos, setTipos] = useState(() => getTipoBonos().slice().sort((a, b) => a.nombre.localeCompare(b.nombre)));
-  const [editingMonto, setEditingMonto] = useState<number>(getActiveTipoBono().monto_base);
-  const [cargos, setCargos] = useState<Cargo[]>(() => getCargos().slice().sort((a, b) => {
-    if (a.activo === b.activo) return a.nombre.localeCompare(b.nombre);
-    return a.activo ? -1 : 1;
-  }));
+  const [tipos, setTipos] = useState<TipoBono[]>([]);
+  const [editingMonto, setEditingMonto] = useState<number>(0);
+  const [activeTipo, setActiveTipo] = useState<TipoBono | null>(null);
+  const [cargos, setCargos] = useState<Cargo[]>([]);
 
   const sortCargos = (items: Cargo[]) =>
     items.slice().sort((a, b) => {
@@ -41,15 +49,21 @@ export default function ConfiguracionPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const data = getReglas();
-    setReglas(data);
-    setLoading(false);
-  }, []);
+    const loadConfig = async () => {
+      const reglasData = await getReglasApi();
+      const tiposData = (await getTipoBonosApi()).slice().sort((a, b) => a.nombre.localeCompare(b.nombre));
+      const cargosData = sortCargos(await getCargosApi());
+      const activeTipo = await getActiveTipoBonoApi();
 
-  useEffect(() => {
-    setTipos(getTipoBonos().slice().sort((a, b) => a.nombre.localeCompare(b.nombre)));
-    setEditingMonto(getActiveTipoBono().monto_base);
-    setCargos(sortCargos(getCargos()));
+      setReglas(reglasData);
+      setTipos(tiposData);
+      setActiveTipo(activeTipo);
+      setEditingMonto(activeTipo.monto_base);
+      setCargos(cargosData);
+      setLoading(false);
+    };
+
+    loadConfig();
   }, []);
 
   const handleTipoActiveChange = (id: string, activo: boolean) => {
@@ -70,7 +84,7 @@ export default function ConfiguracionPage() {
     setCargoDescription('');
   };
 
-  const handleSaveCargo = () => {
+  const handleSaveCargo = async () => {
     const nombre = cargoName.trim();
     if (!nombre) return;
 
@@ -82,23 +96,23 @@ export default function ConfiguracionPage() {
     } else {
       newCargos = [...cargos, { id: generateId(), nombre, descripcion: cargoDescription, activo: true }];
     }
-    saveCargos(newCargos);
+    await saveCargosApi(newCargos);
     setCargos(sortCargos(newCargos));
     setCargoName('');
     setCargoDescription('');
     setEditingCargoId(null);
   };
 
-  const handleDeleteCargo = (id: string) => {
+  const handleDeleteCargo = async (id: string) => {
     if (!confirm('¿Desea eliminar este cargo?')) return;
     const newCargos = cargos.filter(c => c.id !== id);
-    saveCargos(newCargos);
+    await saveCargosApi(newCargos);
     setCargos(sortCargos(newCargos));
   };
 
-  const handleToggleCargoActive = (id: string) => {
+  const handleToggleCargoActive = async (id: string) => {
     const newCargos = cargos.map(c => c.id === id ? { ...c, activo: !c.activo } : c);
-    saveCargos(newCargos);
+    await saveCargosApi(newCargos);
     setCargos(sortCargos(newCargos));
   };
 
@@ -116,23 +130,21 @@ export default function ConfiguracionPage() {
     setHasChanges(true);
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     setSaving(true);
-    saveReglas(reglas);
-    saveTipoBonos(tipos);
-    setTimeout(() => {
-      setSaving(false);
-      setHasChanges(false);
-      alert('Configuración guardada exitosamente');
-    }, 500);
+    await saveReglasApi(reglas);
+    await saveTipoBonosApi(tipos);
+    setSaving(false);
+    setHasChanges(false);
+    alert('Configuración guardada exitosamente');
   };
 
-  const handleSaveMonto = () => {
-    const tiposAct = getTipoBonos();
+  const handleSaveMonto = async () => {
+    const tiposAct = await getTipoBonosApi();
     const active = tiposAct.find(t => t.nombre.toLowerCase().includes('disciplina')) || tiposAct[0];
     if (active) {
       active.monto_base = Math.max(0, editingMonto);
-      saveTipoBonos(tiposAct);
+      await saveTipoBonosApi(tiposAct);
       setTipos(tiposAct);
       alert('Monto base actualizado');
     }
@@ -208,7 +220,7 @@ export default function ConfiguracionPage() {
                 <button onClick={handleSaveMonto} className="px-4 py-2 bg-primary text-primary-foreground rounded-lg">Actualizar Monto</button>
               </div>
               <p className="text-muted-foreground text-sm mt-3">
-                Monto vigente: <strong className="text-foreground">S/ {getActiveTipoBono().monto_base.toFixed(2)}</strong>.
+                Monto vigente: <strong className="text-foreground">S/ {activeTipo ? activeTipo.monto_base.toFixed(2) : '0.00'}</strong>.
               </p>
             </div>
           </div>
@@ -271,7 +283,7 @@ export default function ConfiguracionPage() {
                         <span className="text-foreground font-medium">%</span>
                       </div>
                       <div className="text-sm text-muted-foreground whitespace-nowrap">
-                        = S/ {((getActiveTipoBono().monto_base * regla.porcentajeDescuento) / 100).toFixed(2)}
+                        = S/ {((activeTipo?.monto_base ?? 0) * regla.porcentajeDescuento / 100).toFixed(2)}
                       </div>
                     </div>
                   </div>
